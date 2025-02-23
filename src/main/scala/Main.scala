@@ -1,34 +1,46 @@
 package upmc.akka.ppc
 
 import akka.actor.{Props,  Actor,  ActorRef,  ActorSystem}
+import scala.concurrent.duration._
+import scala.concurrent.ExecutionContext.Implicits.global
 import scala.util.Random
+import upmc.akka.ppc.DataBaseActor.{GetMeasure,Measure}
+import upmc.akka.ppc.PlayerActor
 
 case class res_tirage(i: Int, n: Int)
 
 class clock extends Actor {
-  val TIME_BASE = 1800 milliseconds
+  val TIME_BASE = 1800.milliseconds
   val scheduler = context.system.scheduler
 
     def receive = {
       case "tick" =>
         println("tick")
         scheduler.scheduleOnce(TIME_BASE, self, "tick")
+        var conductor_adre = context.actorSelection("/user/conductor")
+        conductor_adre ! "tirer"
     } 
  }
 
 class Conductor extends Actor {
-    val i = 0
+    //instance random
+    val random = new Random()
+    var i = 0
 
     def receive = {
       case "tirer" =>
-        val de1_value = random.nextInt(6) + 1
-        val de2_value = random.nextInt(6) + 1
-        val somme = de1_value + de2_value
-        val provider_adre = context.actorSelection("/user/provider")
+        var de1_value = random.nextInt(6) + 1
+        var de2_value = random.nextInt(6) + 1
+        var somme = de1_value + de2_value
+        var provider_adre = context.actorSelection("/user/provider")
         provider_adre ! res_tirage(i, somme)
         i = i + 1
         if (i >= 16){ i = 0}
-    } 
+      case mesure:Measure =>
+        println(s"Conductor receive: $mesure")
+        var player_adre = context.actorSelection("/user/player")
+        player_adre ! mesure
+    }
   }
 
 class Provider extends Actor {
@@ -62,10 +74,24 @@ class Provider extends Actor {
 
 
     def receive = {
-      case "tirer" =>
-
+      case res_tirage(i,somme) =>
+          var mesure = 0
+          if (i <= 7){
+            mesure = firstPart(somme-2)(i)
+          }
+          else {
+            var new_i = i - 8
+            mesure = secondPart(somme-2)(new_i)
+          }
+          var db = context.actorSelection("/user/db")
+          db ! GetMeasure(mesure)
+      case mesure:Measure =>
+        println(s"Provider receive: $mesure")
+        var conductor_adre = context.actorSelection("/user/conductor")
+        conductor_adre ! mesure
     } 
   }
+
 
 object Concert extends App {
   println("starting Mozart's game")
@@ -74,7 +100,9 @@ object Concert extends App {
   val conductor = system.actorOf(Props[Conductor], "conductor")
   val provider = system.actorOf(Props[Provider], "provider")
   val clock = system.actorOf(Props[clock], "clock")
+  val db = system.actorOf(Props[DataBaseActor], "db")
+  val player = system.actorOf(Props[PlayerActor], "player")
 
-
+  clock ! "tick"
   
  }
